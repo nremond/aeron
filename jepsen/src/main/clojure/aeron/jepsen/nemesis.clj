@@ -39,6 +39,23 @@
   [test node]
   (db/parse-state (probe test node "state")))
 
+(defn- states
+  "Each member's counters, nil for one that does not answer."
+  [test]
+  (into {} (map (fn [node] [node (state test node)]) (:nodes test))))
+
+(defn- probe-nemesis
+  "Answers `:states` with each member's counters, for the rejoin check."
+  []
+  (reify
+    n/Nemesis
+    (setup! [this _test] this)
+    (invoke! [_ test op] (assoc op :value (states test)))
+    (teardown! [_ _test])
+
+    n/Reflection
+    (fs [_] #{:states})))
+
 (defn- first-candidate
   "The first of `nodes` to stand as candidate within `timeout-ms`."
   [test nodes timeout-ms]
@@ -196,10 +213,11 @@
                 :partition {:targets [:one :majority :majorities-ring :primaries]}
                 :kill      {:targets [:one :primaries :minority]}
                 :pause     {:targets [:one :primaries :minority]}}]
-      (nc/compose-packages [(nc/partition-package opts) (nc/db-package opts)]))
+      (-> (nc/compose-packages [(nc/partition-package opts) (nc/db-package opts)])
+          (update :nemesis #(n/compose [% (probe-nemesis)]))))
 
     ("stale-leader" "stale-election")
-    {:nemesis         (stale-leader-nemesis)
+    {:nemesis         (n/compose [(stale-leader-nemesis) (probe-nemesis)])
      :generator       (gen/phases (gen/sleep 15)
                                   {:type :info, :f (keyword (:scenario opts))})
      :final-generator {:type :info, :f :heal}}))

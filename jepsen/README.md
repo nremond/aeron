@@ -27,6 +27,7 @@ AERON_VERSION=1.53.3 ./run.sh --scenario stale-leader --election-timeout-ms 3000
 - **`:append`:** Elle's checker for strict serializability. Every transaction, reads too, goes through the log, and the leader's service answers it.
 - **`:truncation`:** fails when a member cut its log below its commit position (`Truncating Cluster Log`).
 - **`:liveness`:** fails when no transaction succeeded after the final heal. A cluster that loses committed entries and then stalls serves no read for Elle to catch the loss with.
+- **`:rejoined`:** fails unless, probed 20 s after the final heal, every member is past its election, in one term, with one leader. A cluster serving on a majority passes `:liveness` with a member left behind, such as a leader stuck in an older term's election.
 
 A transaction ends one of three ways:
 - **`:ok`:** answered.
@@ -64,6 +65,16 @@ The staged scenarios show, on real members:
 - a leader outside ACTIVE never steps down.
 
 Entries a quorum committed, and clients saw acknowledged, are cut from the logs (`stale-leader`) or missing from the new leader's (`stale-election`). Either way, the cluster stops serving.
+
+## Findings with `:rejoined` (2026-10-30)
+
+| Scenario | 1.54.0 | aeron-io/aeron#2212 (133cc7d520) |
+|---|---|---|
+| `random`, 120 s | Valid, every member rejoined | Not run with `:rejoined` |
+| `stale-leader` | Invalid as above. 20 s after the heal, n2 leads term 1 in LEADER_READY, and n1 and n3 loop through elections from INIT in term 0 | `:append`, `:truncation` and `:liveness` valid. Not rejoined: n2 leads term 2 and serves, while n1 is still leader of term 0, in LEADER_LOG_REPLICATION |
+| `stale-election` | Invalid as above. 20 s after the heal, n3 leads term 2 in LEADER_READY, and n1 and n2 loop through elections from INIT in term 1 | `:append`, `:truncation` and `:liveness` valid. Not rejoined: n3 leads term 3 and serves, while n1 is still leader of term 0, in LEADER_LOG_REPLICATION |
+
+With #2212, no committed entry is lost and the cluster serves on a majority. The leader of the abandoned term stays in its election for good: `Election` ignores a newer `NewLeadershipTerm` in the leader states, and a higher-term `CommitPosition` ends only LEADER_READY.
 
 ## Licence
 

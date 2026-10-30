@@ -60,18 +60,22 @@
                         {:append     (:checker workload)
                          :truncation (aeron-checker/truncation)
                          :liveness   (aeron-checker/liveness)
+                         :rejoined   (aeron-checker/rejoined)
                          :stats      (checker/stats)
                          :exceptions (checker/unhandled-exceptions)
                          :timeline   (timeline/html)})
             ;; One client stream for the whole run, so Elle's values stay
             ;; unique; the faults, then their final heal, on the nemesis'
             ;; track; then traffic for 40 s more, which the cluster must serve.
+            ;; 20 s after the heal, the members are probed: all must be back.
             :generator (->> (:generator workload)
                             clients
                             (gen/nemesis (gen/phases
                                           (gen/time-limit (:time-limit opts) (:generator nem))
                                           (gen/sleep 1)
-                                          (:final-generator nem)))
+                                          (:final-generator nem)
+                                          (gen/sleep 20)
+                                          {:type :info, :f :states}))
                             (gen/time-limit (+ (:time-limit opts) 40)))})))
 
 (defn -main
